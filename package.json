@@ -1,0 +1,40 @@
+{
+  "name": "metascan",
+  "version": "2.3.0",
+  "description": "ファイルのメタデータ・個人情報・偽装を検出するスキャナー (アップロード前チェック用)",
+  "main": "main.js",
+  "author": "kazumasa",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node test.js",
+    "dist": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.kazumasa.metascan",
+    "productName": "MetaScan",
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "engine.js",
+      "cleaner.js",
+      "lzma.js",
+      "worker-boot.js"
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "icon": "icon.ico"
+    },
+    "portable": {
+      "artifactName": "MetaScan-${version}.exe"
+    }
+  }
+}

@@ -1,0 +1,10 @@
+# 依存・ビルド成果物
+node_modules/
+dist/
+
+# OS / エディタ
+Thumbs.db
+.DS_Store
+*.log
+.vscode/
+.idea/

@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="ja" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MetaScan — ファイルメタデータ検出ツール</title>
+<style>
+:root, [data-theme="light"] {
+  --color-bg:#f7f6f2;--color-surface:#f9f8f5;--color-surface-2:#fbfbf9;
+  --color-surface-offset:#f0ede8;--color-surface-dynamic:#e6e4df;
+  --color-divider:#dcd9d5;--color-border:#d4d1ca;
+  --color-text:#1a1917;--color-text-muted:#6b6a66;--color-text-faint:#b0afa9;
+  --color-primary:#01696f;--color-primary-hover:#0c4e54;--color-primary-highlight:#cedcd8;
+  --color-error:#b03060;--color-error-highlight:#f0d8e4;
+  --color-warning:#a04010;--color-warning-highlight:#f0ddd0;
+  --color-success:#2d6010;--color-success-highlight:#d4e8c8;
+  --color-orange:#c06010;--color-gold:#a07800;
+  --shadow-sm:0 1px 3px rgba(40,38,30,0.08);
+  --shadow-md:0 4px 14px rgba(40,38,30,0.10);
+  --radius-sm:0.375rem;--radius-md:0.5rem;--radius-lg:0.75rem;--radius-xl:1rem;--radius-full:9999px;
+  --transition:180ms cubic-bezier(0.16,1,0.3,1);
+  --font-body:'Yu Gothic UI','Meiryo UI','Inter','Helvetica Neue',sans-serif;
+  --font-mono:'Cascadia Mono','Consolas','Courier New',monospace;
+  --text-xs:clamp(0.75rem,0.7rem + 0.25vw,0.875rem);
+  --text-sm:clamp(0.875rem,0.8rem + 0.35vw,1rem);
+  --text-base:clamp(1rem,0.95rem + 0.25vw,1.125rem);
+  --space-1:0.25rem;--space-2:0.5rem;--space-3:0.75rem;--space-4:1rem;
+  --space-5:1.25rem;--space-6:1.5rem;--space-8:2rem;--space-10:2.5rem;--space-12:3rem;
+}
+[data-theme="dark"] {
+  --color-bg:#111210;--color-surface:#181817;--color-surface-2:#1e1d1b;
+  --color-surface-offset:#242321;--color-surface-dynamic:#2a2927;
+  --color-divider:#2e2c2a;--color-border:#383634;
+  --color-text:#d8d6d2;--color-text-muted:#7a7874;--color-text-faint:#4e4c4a;
+  --color-primary:#40a0a8;--color-primary-hover:#288090;--color-primary-highlight:#1e3438;
+  --color-error:#e07090;--color-error-highlight:#3a1e28;
+  --color-warning:#e09050;--color-warning-highlight:#3a2414;
+  --color-success:#70c040;--color-success-highlight:#1c3010;
+  --color-orange:#f0a040;--color-gold:#e0c040;
+  --shadow-sm:0 1px 3px rgba(0,0,0,0.25);
+  --shadow-md:0 4px 14px rgba(0,0,0,0.35);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-font-smoothing:antialiased;scroll-behavior:smooth}
+body{min-height:100vh;font-family:var(--font-body);font-size:var(--text-sm);color:var(--color-text);background:var(--color-bg)}
+img{display:block;max-width:100%}
+button{cursor:pointer;background:none;border:none;font:inherit;color:inherit}
+a,button,input{transition:color var(--transition),background var(--transition),border-color var(--transition)}
+:focus-visible{outline:2px solid var(--color-primary);outline-offset:3px;border-radius:var(--radius-sm)}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--color-border);border-radius:var(--radius-full)}
+
+.topbar{position:sticky;top:0;z-index:100;background:var(--color-surface);border-bottom:1px solid var(--color-divider);padding:var(--space-3) var(--space-6);display:flex;align-items:center;justify-content:space-between;gap:var(--space-4)}
+.logo{display:flex;align-items:center;gap:var(--space-3);text-decoration:none;color:var(--color-text)}
+.logo-name{font-size:var(--text-base);font-weight:700;letter-spacing:-0.01em}
+.logo-tag{font-size:var(--text-xs);color:var(--color-text-muted);font-weight:400}
+@media(max-width:560px){.logo-tag{display:none}}
+.topbar-right{display:flex;align-items:center;gap:var(--space-3)}
+.theme-btn{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:var(--radius-md);background:var(--color-surface-offset);color:var(--color-text-muted)}
+.theme-btn:hover{background:var(--color-surface-dynamic);color:var(--color-text)}
+.risk-summary{display:none;align-items:center;gap:var(--space-2);font-size:var(--text-xs);color:var(--color-text-muted);background:var(--color-surface-offset);padding:2px var(--space-3);border-radius:var(--radius-full)}
+.risk-summary.visible{display:flex}
+.risk-dot{width:8px;height:8px;border-radius:50%;background:var(--color-text-faint);flex-shrink:0}
+.risk-dot.low{background:var(--color-gold)}.risk-dot.medium{background:var(--color-orange)}.risk-dot.high{background:var(--color-error)}.risk-dot.critical{background:var(--color-error)}.risk-dot.none{background:var(--color-success)}
+
+.main{display:flex;flex-direction:column;align-items:center;padding:var(--space-8) var(--space-4);gap:var(--space-6)}
+.drop-zone{width:100%;max-width:1080px;border:2px dashed var(--color-border);border-radius:var(--radius-xl);background:var(--color-surface);padding:var(--space-10) var(--space-8);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--space-4);cursor:pointer;text-align:center;position:relative;transition:border-color var(--transition),background var(--transition)}
+.drop-zone:hover,.drop-zone.drag-over{border-color:var(--color-primary);background:var(--color-primary-highlight)}
+.drop-zone-icon{color:var(--color-text-faint)}
+.drop-zone-title{font-size:var(--text-base);font-weight:600}
+.drop-zone-sub{font-size:var(--text-xs);color:var(--color-text-muted)}
+.file-input-hidden{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.hint-chips{display:flex;flex-wrap:wrap;gap:var(--space-2);justify-content:center;margin-top:var(--space-2);max-width:760px}
+.hint-chip{font-size:var(--text-xs);color:var(--color-text-muted);background:var(--color-surface-offset);padding:2px var(--space-2);border-radius:var(--radius-full)}
+
+.results-toolbar{width:100%;max-width:1080px;display:none;justify-content:flex-end;gap:var(--space-2)}
+.results-toolbar.visible{display:flex}
+#results-area{width:100%;max-width:1080px;display:flex;flex-direction:column;gap:var(--space-4)}
+.file-card{background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);overflow:hidden}
+.file-card-header{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-4) var(--space-5);border-bottom:1px solid var(--color-divider);cursor:pointer;user-select:none}
+.file-card-header:hover{background:var(--color-surface-offset)}
+.file-icon{flex-shrink:0;color:var(--color-text-muted)}
+.file-info{flex:1;min-width:0}
+.file-name{font-size:var(--text-sm);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file-meta-brief{font-size:var(--text-xs);color:var(--color-text-muted);margin-top:2px}
+.card-risk-badge{flex-shrink:0;font-size:var(--text-xs);font-weight:600;padding:2px var(--space-3);border-radius:var(--radius-full)}
+.badge-none{background:var(--color-success-highlight);color:var(--color-success)}
+.badge-low{background:var(--color-warning-highlight);color:var(--color-gold)}
+.badge-medium{background:var(--color-warning-highlight);color:var(--color-orange)}
+.badge-high{background:var(--color-error-highlight);color:var(--color-error)}
+.badge-critical{background:var(--color-error-highlight);color:var(--color-error);font-weight:700;border:1px solid var(--color-error)}
+.chevron{transition:transform 200ms ease;color:var(--color-text-faint);flex-shrink:0}
+.file-card.open .chevron{transform:rotate(90deg)}
+.file-card-body{display:none;padding:var(--space-5)}
+.file-card.open .file-card-body{display:block}
+
+.section-block{margin-bottom:var(--space-5)}
+.section-block:last-child{margin-bottom:0}
+.section-label{font-size:var(--text-xs);font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--color-text-muted);margin-bottom:var(--space-3);display:flex;align-items:center;gap:var(--space-2)}
+.section-label-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.risk-items{display:flex;flex-direction:column;gap:var(--space-2)}
+.risk-item{display:grid;grid-template-columns:16px minmax(0,1fr) auto;align-items:start;gap:var(--space-3);padding:var(--space-3) var(--space-4);border-radius:var(--radius-md);border:1px solid var(--color-divider);background:var(--color-surface-2)}
+.risk-item-key{font-size:var(--text-xs);font-weight:600;color:var(--color-text)}
+.risk-item-val{font-size:var(--text-xs);color:var(--color-text-muted);margin-top:2px;word-break:break-all;font-family:var(--font-mono)}
+.risk-item-why{font-size:var(--text-xs);color:var(--color-text-faint);margin-top:var(--space-1)}
+.risk-level-badge{font-size:10px;font-weight:700;padding:1px 6px;border-radius:var(--radius-full);flex-shrink:0;align-self:flex-start}
+.meta-table{width:100%;border-collapse:collapse;font-size:var(--text-xs)}
+.meta-table tr{border-bottom:1px solid var(--color-divider)}
+.meta-table tr:last-child{border-bottom:none}
+.meta-table td{padding:var(--space-2) var(--space-3);vertical-align:top}
+.meta-table td:first-child{color:var(--color-text-muted);white-space:nowrap;width:40%;font-weight:500}
+.meta-table td:last-child{font-family:var(--font-mono);word-break:break-all;color:var(--color-text)}
+.meta-table-wrap{border:1px solid var(--color-border);border-radius:var(--radius-md);overflow:hidden;background:var(--color-surface-2)}
+.safe-banner{display:flex;align-items:center;gap:var(--space-3);background:var(--color-success-highlight);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:var(--text-xs);color:var(--color-success);font-weight:500}
+.actions-row{display:flex;gap:var(--space-2);flex-wrap:wrap;margin-bottom:var(--space-4)}
+.btn-sm{font-size:var(--text-xs);padding:var(--space-1) var(--space-3);border-radius:var(--radius-md);border:1px solid var(--color-border);background:var(--color-surface-offset);color:var(--color-text-muted);font-weight:500;cursor:pointer}
+.btn-sm:hover{background:var(--color-surface-dynamic);color:var(--color-text)}
+.analyzing{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-4) var(--space-5);font-size:var(--text-xs);color:var(--color-text-muted)}
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinner{width:16px;height:16px;border:2px solid var(--color-border);border-top-color:var(--color-primary);border-radius:50%;animation:spin 0.6s linear infinite;flex-shrink:0}
+hr{border:none;border-top:1px solid var(--color-divider);margin:var(--space-4) 0}
+@media(max-width:600px){.topbar{padding:var(--space-2) var(--space-4)}.drop-zone{padding:var(--space-8) var(--space-4)}.main{padding:var(--space-5) var(--space-3)}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <a class="logo" href="#">
+    <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-label="MetaScan">
+      <rect width="28" height="28" rx="7" fill="currentColor" opacity="0.08"/>
+      <rect x="5" y="5" width="18" height="18" rx="3" stroke="currentColor" stroke-width="1.5" fill="none"/>
+      <circle cx="14" cy="14" r="4" stroke="currentColor" stroke-width="1.5" fill="none"/>
+      <circle cx="14" cy="14" r="1.5" fill="currentColor"/>
+      <line x1="14" y1="5" x2="14" y2="9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="14" y1="19" x2="14" y2="23" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="5" y1="14" x2="9" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="19" y1="14" x2="23" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    <span class="logo-name">MetaScan</span>
+    <span class="logo-tag">— ファイルメタデータ検出ツール</span>
+  </a>
+  <div class="topbar-right">
+    <div class="risk-summary" id="globalRiskSummary">
+      <div class="risk-dot" id="globalRiskDot"></div>
+      <span id="globalRiskText"></span>
+    </div>
+    <button class="btn-sm" id="ctxBtn" style="display:none" title="エクスプローラーの右クリックメニューに「MetaScanでスキャン」を追加します"></button>
+    <button class="theme-btn" id="themeBtn" aria-label="テーマ切替"></button>
+  </div>
+</header>
+<main class="main">
+  <div class="drop-zone" id="dropZone">
+    <input type="file" class="file-input-hidden" id="fileInput" multiple>
+    <svg class="drop-zone-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+      <polyline points="17 8 12 3 7 8"/>
+      <line x1="12" y1="3" x2="12" y2="15"/>
+    </svg>
+    <div class="drop-zone-title">ファイルをドロップ、またはクリックして選択</div>
+    <div class="drop-zone-sub">複数ファイル対応 · すべての処理はこのPC内で完結（外部送信なし）</div>
+    <div class="hint-chips">
+      <span class="hint-chip">📷 JPEG / PNG / GIF / WebP / TIFF / HEIC / SVG</span>
+      <span class="hint-chip">📄 PDF / RTF</span>
+      <span class="hint-chip">📝 docx / xlsx / pptx / odt / 旧Office</span>
+      <span class="hint-chip">📦 ZIP / 7z / RAR / GZ / TAR（中身も解析）</span>
+      <span class="hint-chip">🎵 MP3 / FLAC / OGG / WAV</span>
+      <span class="hint-chip">🎬 MP4 / MOV / AVI / MKV</span>
+      <span class="hint-chip">⚙ EXE / DLL / LNK</span>
+      <span class="hint-chip">その他すべて</span>
+    </div>
+  </div>
+  <div class="results-toolbar" id="resultsToolbar">
+    <button class="btn-sm" id="clearBtn">🗑 結果をすべてクリア</button>
+  </div>
+  <div id="results-area"></div>
+</main>
+<script src="lzma.js"></script>
+<script src="engine.js"></script>
+<script src="cleaner.js"></script>
+<script>
+(function() {
+"use strict";
+
+var Engine = window.MetaScanEngine;
+var Cleaner = window.MetaScanCleaner;
+var RISK = Engine.RISK;
+var RISK_LABELS = ['なし','低','中','高','危険'];
+var RISK_CLASSES = ['none','low','medium','high','critical'];
+/* 巨大ファイルは先頭のみ読む(メモリ保護) */
+var FULL_READ_LIMIT = 256*1024*1024;
+var PARTIAL_READ = 16*1024*1024;
+
+// ===== WORKERプール (全CPUコアで並列解析・UIをブロックしない) =====
+var WorkerPool = (function(){
+  var size = Math.min(Math.max(1, (navigator.hardwareConcurrency || 4) - 1), 8);
+  var workers = [], idle = [], queue = [], pending = {}, nextId = 1;
+  var sourcePromise = null, broken = false;
+
+  function getSource(){
+    if (sourcePromise) return sourcePromise;
+    if (window.metascanNative && window.metascanNative.workerSource) {
+      sourcePromise = Promise.resolve(window.metascanNative.workerSource);
+    } else {
+      sourcePromise = Promise.all([fetch('lzma.js'), fetch('engine.js'), fetch('worker-boot.js')])
+        .then(function(rs){ return Promise.all(rs.map(function(r){ return r.text(); })); })
+        .then(function(ts){ return ts.join('\n'); });
+    }
+    return sourcePromise;
+  }
+  function spawn(src){
+    var w = new Worker(URL.createObjectURL(new Blob([src], {type:'text/javascript'})));
+    w.onmessage = function(ev){
+      var d = ev.data;
+      var p = pending[d.id];
+      delete pending[d.id];
+      idle.push(w);
+      drain();
+      if (!p) return;
+      if (d.ok) p.resolve({ metadata:d.metadata, findings:d.findings, thumbnail:d.thumbnail });
+      else p.reject(new Error(d.error));
+    };
+    w.onerror = function(){ broken = true; };
+    return w;
+  }
+  function drain(){
+    while (queue.length && idle.length) {
+      var task = queue.shift();
+      var w = idle.pop();
+      pending[task.id] = task;
+      w.postMessage({ id:task.id, buffer:task.buffer, info:task.info });
+    }
+  }
+  function analyze(bytes, info){
+    if (broken) return Engine.analyzeBuffer(bytes, info);
+    return getSource().then(function(src){
+      if (!workers.length) {
+        try {
+          for (var i = 0; i < size; i++) { var w = spawn(src); workers.push(w); idle.push(w); }
+        } catch(e) { broken = true; }
+      }
+      if (broken || !workers.length) return Engine.analyzeBuffer(bytes, info);
+      return new Promise(function(resolve, reject){
+        /* bytesはクリーニングで再利用するためコピーを渡す(transferしない) */
+        queue.push({ id:nextId++, buffer:bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), info:info, resolve:resolve, reject:reject });
+        drain();
+      });
+    }).catch(function(){ return Engine.analyzeBuffer(bytes, info); });
+  }
+  return { analyze:analyze, size:size };
+})();
+
+// ===== THEME =====
+var themeBtn = document.getElementById('themeBtn');
+var root = document.documentElement;
+var currentTheme;
+try { currentTheme = localStorage.getItem('metascan-theme'); } catch(e) {}
+if (!currentTheme) currentTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+root.setAttribute('data-theme', currentTheme);
+updateThemeIcon();
+themeBtn.addEventListener('click', function() {
+  currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+  root.setAttribute('data-theme', currentTheme);
+  try { localStorage.setItem('metascan-theme', currentTheme); } catch(e) {}
+  updateThemeIcon();
+});
+function updateThemeIcon() {
+  themeBtn.innerHTML = currentTheme === 'dark'
+    ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>'
+    : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+}
+
+// ===== DROP ZONE =====
+var dropZone = document.getElementById('dropZone');
+var fileInput = document.getElementById('fileInput');
+
+/* ウィンドウ外ドロップでブラウザがファイルを開いてしまうのを防ぐ */
+window.addEventListener('dragover', function(e){ e.preventDefault(); });
+window.addEventListener('drop', function(e){ e.preventDefault(); });
+
+dropZone.addEventListener('dragover', function(e) {
+  e.preventDefault(); e.stopPropagation();
+  dropZone.classList.add('drag-over');
+});
+dropZone.addEventListener('dragleave', function(e) {
+  e.stopPropagation();
+  dropZone.classList.remove('drag-over');
+});
+dropZone.addEventListener('drop', function(e) {
+  e.preventDefault(); e.stopPropagation();
+  dropZone.classList.remove('drag-over');
+  var files = Array.prototype.slice.call(e.dataTransfer.files);
+  if (files.length) handleFiles(files);
+});
+dropZone.addEventListener('click', function(e) {
+  if (e.target === fileInput) return;
+  fileInput.click();
+});
+fileInput.addEventListener('change', function() {
+  var files = Array.prototype.slice.call(fileInput.files);
+  if (files.length) handleFiles(files);
+  fileInput.value = '';
+});
+
+document.getElementById('clearBtn').addEventListener('click', function(){
+  document.getElementById('results-area').innerHTML = '';
+  document.getElementById('resultsToolbar').classList.remove('visible');
+  document.getElementById('globalRiskSummary').classList.remove('visible');
+});
+
+// ===== MAIN HANDLER =====
+/* file: Fileオブジェクト、または {name,size,lastModified,type,bytes:Uint8Array} */
+var cardData = new WeakMap(); /* card -> {bytes, file, result} (クリーニング・再スキャン用) */
+
+function handleFiles(files) {
+  var area = document.getElementById('results-area');
+  document.getElementById('resultsToolbar').classList.add('visible');
+  files.forEach(function(file) {
+    var card = createCardSkeleton(file);
+    /* 新しい結果を上に積む(以前の結果は消さない) */
+    area.insertBefore(card, area.firstChild);
+    Promise.all([readBytes(file), readZoneInfo(file)]).then(function(rs) {
+      var r = rs[0], zone = rs[1];
+      var info = { name:file.name, size:file.size, type:file.type||'', lastModified:file.lastModified };
+      return WorkerPool.analyze(r.bytes, info).then(function(result){
+        if (r.truncated) {
+          result.metadata['注意'] = 'ファイルが大きいため先頭'+(PARTIAL_READ/1048576)+'MBのみ解析しました';
+        }
+        if (zone) {
+          if (zone.zoneId != null) result.metadata['Zone.Identifier'] = 'ZoneId=' + zone.zoneId + (zone.zoneId === '3' ? ' (インターネット)' : '');
+          var src = zone.hostUrl || zone.referrerUrl;
+          if (src) {
+            result.metadata['ダウンロード元(ADS)'] = src;
+            result.findings.push({ key:'ダウンロード元URLが記録(NTFS ADS)', val:src,
+              why:'NTFSの代替データストリームに取得元URLが残っています。アップロードでは送信されませんが、このPC上ではファイルの出所が判別できます。',
+              risk:RISK.LOW, category:'Windows付加情報' });
+          }
+        }
+        cardData.set(card, { bytes:r.bytes, file:file, result:result });
+        fillCard(card, file, result);
+        updateGlobalRisk();
+      });
+    }).catch(function(err) {
+      fillCardError(card, file, err);
+      updateGlobalRisk();
+    });
+  });
+}
+
+/* NTFS ADS (Zone.Identifier) — Electronで実ファイルをドロップした場合のみ取得可能 */
+function readZoneInfo(file) {
+  if (!window.metascanNative || !window.metascanNative.getPathForFile || !(file instanceof File)) {
+    return Promise.resolve(file.zone || null);
+  }
+  try {
+    var p = window.metascanNative.getPathForFile(file);
+    if (!p) return Promise.resolve(null);
+    return window.metascanNative.readZone(p).then(parseZone).catch(function(){ return null; });
+  } catch(e) { return Promise.resolve(null); }
+}
+function parseZone(text) {
+  if (!text) return null;
+  var get = function(key){ var m = text.match(new RegExp('^' + key + '=(.+)$', 'm')); return m ? m[1].trim() : null; };
+  return { zoneId:get('ZoneId'), hostUrl:get('HostUrl'), referrerUrl:get('ReferrerUrl') };
+}
+
+function readBytes(file) {
+  /* Electron連携の擬似ファイルのみ。本物のFileにもbytes()メソッドがあるためinstanceofで判定する */
+  if (file.bytes instanceof Uint8Array) return Promise.resolve({ bytes:file.bytes, truncated:!!file.truncated });
+  var truncated = file.size > FULL_READ_LIMIT;
+  var blob = truncated ? file.slice(0, PARTIAL_READ) : file;
+  return new Promise(function(resolve, reject) {
+    var reader = new FileReader();
+    reader.onload = function(e) { resolve({ bytes:new Uint8Array(e.target.result), truncated:truncated }); };
+    reader.onerror = function() { reject(new Error('ファイルの読み込みに失敗しました')); };
+    reader.readAsArrayBuffer(blob);
+  });
+}
+
+function createCardSkeleton(file) {
+  var div = document.createElement('div');
+  div.className = 'file-card open';
+  div.dataset.risk = '0';
+  div.innerHTML =
+    '<div class="file-card-header">' +
+      fileIconSVG(file.name) +
+      '<div class="file-info">' +
+        '<div class="file-name">' + esc(file.name) + '</div>' +
+        '<div class="file-meta-brief">解析中...</div>' +
+      '</div>' +
+      '<svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>' +
+    '</div>' +
+    '<div class="file-card-body"><div class="analyzing"><div class="spinner"></div>メタデータを解析中...</div></div>';
+  div.querySelector('.file-card-header').addEventListener('click', function() {
+    div.classList.toggle('open');
+  });
+  return div;
+}
+
+// ===== CARD FILL =====
+function fillCard(card, file, result) {
+  var findings = result.findings;
+  var metadata = result.metadata;
+  var maxRisk = RISK.NONE;
+  findings.forEach(function(f){ if (f.risk > maxRisk) maxRisk = f.risk; });
+  card.dataset.risk = String(maxRisk);
+
+  card.querySelector('.file-meta-brief').textContent =
+    Engine.fmtBytes(file.size) + ' · ' + (metadata['ファイル形式（マジック）'] || file.type || '形式不明') + ' · ' + findings.length + '件の検出';
+
+  var oldBadge = card.querySelector('.card-risk-badge');
+  if (oldBadge) oldBadge.remove();
+  var badge = document.createElement('span');
+  badge.className = 'card-risk-badge badge-' + RISK_CLASSES[maxRisk];
+  badge.textContent = 'リスク: ' + RISK_LABELS[maxRisk];
+  card.querySelector('.chevron').before(badge);
+
+  var body = card.querySelector('.file-card-body');
+  body.innerHTML = '';
+
+  // Actions
+  var row = document.createElement('div'); row.className = 'actions-row';
+  var cpBtn = document.createElement('button'); cpBtn.className = 'btn-sm'; cpBtn.textContent = '📋 レポートをコピー';
+  cpBtn.addEventListener('click', function(){ copyReport(file, result, cpBtn); });
+  var dlBtn = document.createElement('button'); dlBtn.className = 'btn-sm'; dlBtn.textContent = '⬇ JSON保存';
+  dlBtn.addEventListener('click', function(){ downloadJSON(file, result); });
+  row.appendChild(cpBtn); row.appendChild(dlBtn);
+
+  // メタデータ除去 (対応形式のみ)
+  var data = cardData.get(card);
+  if (data) {
+    var sup = Cleaner.supports(file.name, data.bytes);
+    var clBtn = document.createElement('button'); clBtn.className = 'btn-sm';
+    if (sup.ok) {
+      clBtn.textContent = '🧹 クリーンなコピーを保存';
+      clBtn.addEventListener('click', function(){ runClean(card, clBtn); });
+    } else {
+      clBtn.textContent = '🧹 除去非対応';
+      clBtn.disabled = true;
+      clBtn.style.opacity = '0.55';
+      clBtn.title = sup.reason;
+    }
+    row.appendChild(clBtn);
+  }
+  body.appendChild(row);
+
+  // クリーニング結果の表示場所
+  var cleanResultEl = document.createElement('div');
+  cleanResultEl.className = 'clean-result';
+  body.appendChild(cleanResultEl);
+
+  // EXIFサムネイルのプレビュー (「編集前の画像」が見える)
+  if (result.thumbnail && result.thumbnail.length) {
+    var tBlock = document.createElement('div'); tBlock.className = 'section-block';
+    var tLbl = document.createElement('div'); tLbl.className = 'section-label';
+    var tDot = document.createElement('div'); tDot.className = 'section-label-dot'; tDot.style.background = 'var(--color-error)';
+    tLbl.appendChild(tDot); tLbl.appendChild(document.createTextNode('埋め込みサムネイル(編集前の画像の可能性)'));
+    tBlock.appendChild(tLbl);
+    var img = document.createElement('img');
+    img.style.cssText = 'max-height:140px;border-radius:var(--radius-md);border:1px solid var(--color-border)';
+    img.src = URL.createObjectURL(new Blob([result.thumbnail], { type:'image/jpeg' }));
+    tBlock.appendChild(img);
+    body.appendChild(tBlock);
+  }
+
+  // Findings
+  if (findings.length === 0) {
+    var b = document.createElement('div'); b.className = 'safe-banner';
+    b.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>個人情報・機密情報は検出されませんでした。';
+    body.appendChild(b);
+  } else {
+    var grouped = {};
+    findings.forEach(function(f){
+      var cat = f.category || 'その他';
+      (grouped[cat] = grouped[cat] || []).push(f);
+    });
+    var cats = Object.keys(grouped).sort(function(a,b){
+      var ma = Math.max.apply(null, grouped[a].map(function(f){return f.risk;}));
+      var mb = Math.max.apply(null, grouped[b].map(function(f){return f.risk;}));
+      return mb - ma;
+    });
+    var dotColors = ['var(--color-success)','var(--color-gold)','var(--color-orange)','var(--color-error)','var(--color-error)'];
+    cats.forEach(function(cat){
+      var catFindings = grouped[cat];
+      var catMax = Math.max.apply(null, catFindings.map(function(f){return f.risk;}));
+      var block = document.createElement('div'); block.className = 'section-block';
+      var lbl = document.createElement('div'); lbl.className = 'section-label';
+      var dot = document.createElement('div'); dot.className = 'section-label-dot'; dot.style.background = dotColors[catMax];
+      lbl.appendChild(dot); lbl.appendChild(document.createTextNode(cat));
+      block.appendChild(lbl);
+      var itemsEl = document.createElement('div'); itemsEl.className = 'risk-items';
+      catFindings.forEach(function(f){
+        var lc = dotColors[f.risk];
+        var iconPath = f.risk >= 3
+          ? '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'
+          : f.risk === 2
+          ? '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>'
+          : '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>';
+        var item = document.createElement('div'); item.className = 'risk-item';
+        item.innerHTML =
+          '<div style="padding-top:2px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="' + lc + '" stroke-width="2">' + iconPath + '</svg></div>' +
+          '<div>' +
+            '<div class="risk-item-key">' + esc(f.key) + '</div>' +
+            '<div class="risk-item-val">' + esc(f.val.substring(0,150)) + (f.val.length > 150 ? '…' : '') + '</div>' +
+            '<div class="risk-item-why">' + esc(f.why) + '</div>' +
+          '</div>' +
+          '<span class="risk-level-badge" style="background:color-mix(in srgb,' + lc + ' 15%,transparent);color:' + lc + '">' + RISK_LABELS[f.risk] + '</span>';
+        itemsEl.appendChild(item);
+      });
+      block.appendChild(itemsEl);
+      body.appendChild(block);
+    });
+  }
+
+  body.appendChild(document.createElement('hr'));
+
+  // Metadata table
+  var metaEntries = Object.entries(metadata);
+  var mBlock = document.createElement('div'); mBlock.className = 'section-block';
+  var mLbl = document.createElement('div'); mLbl.className = 'section-label';
+  var mDot = document.createElement('div'); mDot.className = 'section-label-dot'; mDot.style.background = 'var(--color-text-faint)';
+  mLbl.appendChild(mDot); mLbl.appendChild(document.createTextNode('全メタデータ (' + metaEntries.length + '件)'));
+  mBlock.appendChild(mLbl);
+  if (metaEntries.length) {
+    var wrap = document.createElement('div'); wrap.className = 'meta-table-wrap';
+    var tbl = document.createElement('table'); tbl.className = 'meta-table';
+    metaEntries.forEach(function(en){
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + esc(en[0]) + '</td><td>' + esc(String(en[1]).substring(0,300)) + '</td>';
+      tbl.appendChild(tr);
+    });
+    wrap.appendChild(tbl); mBlock.appendChild(wrap);
+  }
+  body.appendChild(mBlock);
+}
+
+function fillCardError(card, file, err) {
+  card.querySelector('.file-meta-brief').textContent = '解析エラー';
+  card.querySelector('.file-card-body').innerHTML =
+    '<div class="safe-banner" style="background:var(--color-error-highlight);color:var(--color-error)">エラー: ' + esc(String(err && err.message || err)) + '</div>';
+}
+
+// ===== GLOBAL RISK =====
+function updateGlobalRisk() {
+  var cards = document.querySelectorAll('.file-card[data-risk]');
+  if (!cards.length) return;
+  var max = RISK.NONE;
+  cards.forEach(function(c){ var r = parseInt(c.dataset.risk, 10) || 0; if (r > max) max = r; });
+  document.getElementById('globalRiskDot').className = 'risk-dot ' + RISK_CLASSES[max];
+  document.getElementById('globalRiskText').textContent = '最高リスク: ' + RISK_LABELS[max];
+  document.getElementById('globalRiskSummary').classList.add('visible');
+}
+
+// ===== EXPORT =====
+function copyReport(file, result, btn) {
+  var lines = ['# MetaScan レポート: ' + file.name, '生成日時: ' + new Date().toLocaleString('ja-JP'), '', '## 検出された項目'];
+  if (!result.findings.length) { lines.push('個人情報・機密情報は検出されませんでした。'); }
+  else {
+    result.findings.forEach(function(f){
+      lines.push('[' + RISK_LABELS[f.risk] + '] ' + f.key + ': ' + f.val);
+      lines.push('  → ' + f.why);
+    });
+  }
+  lines.push('', '## メタデータ');
+  Object.entries(result.metadata).forEach(function(e){ lines.push(e[0] + ': ' + e[1]); });
+  navigator.clipboard.writeText(lines.join('\n')).then(function(){
+    var orig = btn.textContent;
+    btn.textContent = '✓ コピーしました';
+    setTimeout(function(){ btn.textContent = orig; }, 1500);
+  }).catch(function(){
+    btn.textContent = '✗ コピー失敗';
+  });
+}
+// ===== CLEANING =====
+function runClean(card, btn) {
+  var data = cardData.get(card);
+  if (!data) return;
+  btn.disabled = true;
+  btn.textContent = '🧹 除去中...';
+  var resEl = card.querySelector('.clean-result');
+  Cleaner.clean(data.bytes, data.file.name).then(function(out){
+    /* 除去後のバイト列を再スキャンして「本当に消えたか」を証明する */
+    return WorkerPool.analyze(out.bytes, { name:cleanName(data.file.name), size:out.bytes.length }).then(function(rescan){
+      var remaining = rescan.findings.filter(function(f){ return f.risk >= RISK.MEDIUM; }).length;
+      downloadBytes(out.bytes, cleanName(data.file.name));
+      resEl.innerHTML = '';
+      var banner = document.createElement('div');
+      banner.className = 'safe-banner';
+      banner.style.marginBottom = 'var(--space-4)';
+      banner.textContent = '🧹 除去して保存しました: ' + (out.removed.length ? out.removed.join(' / ') : '除去対象なし(コピーのみ)') +
+        ' ｜ 再スキャン結果: 中リスク以上 ' + remaining + '件' +
+        (remaining === 0 ? ' ✓' : ' (ファイル内容自体に含まれる情報は除去できません)');
+      resEl.appendChild(banner);
+      btn.textContent = '🧹 クリーンなコピーを保存';
+      btn.disabled = false;
+    });
+  }).catch(function(err){
+    resEl.innerHTML = '';
+    var banner = document.createElement('div');
+    banner.className = 'safe-banner';
+    banner.style.cssText = 'background:var(--color-error-highlight);color:var(--color-error);margin-bottom:var(--space-4)';
+    banner.textContent = '除去できませんでした: ' + (err && err.message || err);
+    resEl.appendChild(banner);
+    btn.textContent = '🧹 クリーンなコピーを保存';
+    btn.disabled = false;
+  });
+}
+function cleanName(name) {
+  var dot = name.lastIndexOf('.');
+  return dot > 0 ? name.slice(0, dot) + '_clean' + name.slice(dot) : name + '_clean';
+}
+function downloadBytes(bytes, name) {
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([bytes]));
+  a.download = name;
+  a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); }, 5000);
+}
+
+function downloadJSON(file, result) {
+  var data = { file:file.name, size:file.size, analyzed:new Date().toISOString(), metadata:result.metadata, findings:result.findings };
+  var blob = new Blob([JSON.stringify(data, null, 2)], { type:'application/json' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'metascan_' + file.name.replace(/[^a-zA-Z0-9._\-ぁ-んァ-ヶ一-龠]/g, '_') + '.json';
+  a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); }, 5000);
+}
+
+// ===== UTILS =====
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function fileIconSVG(name) {
+  var ext = name.split('.').pop().toLowerCase();
+  var p = '<path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/>';
+  if (['jpg','jpeg','png','gif','webp','bmp','tif','tiff','heic','heif','avif','svg','ico'].indexOf(ext) !== -1)
+    p = '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>';
+  else if (['exe','dll','bat','ps1','cmd','scr','msi','lnk','sys','com'].indexOf(ext) !== -1)
+    p = '<rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>';
+  else if (['zip','rar','7z','tar','gz','tgz','bz2','xz'].indexOf(ext) !== -1)
+    p = '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>';
+  else if (['mp3','mp4','m4a','mov','avi','mkv','webm','wav','flac','ogg','opus'].indexOf(ext) !== -1)
+    p = '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>';
+  return '<svg class="file-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">' + p + '</svg>';
+}
+
+// ===== エクスプローラー右クリック統合 (Electronのみ) =====
+(function(){
+  var ctxBtn = document.getElementById('ctxBtn');
+  if (!window.metascanNative || !window.metascanNative.ctxStatus) return;
+  ctxBtn.style.display = '';
+  var registered = false;
+  function refresh() {
+    window.metascanNative.ctxStatus().then(function(s){
+      registered = s;
+      ctxBtn.textContent = s ? '🖱 右クリック登録済み (解除)' : '🖱 右クリックメニューに登録';
+    });
+  }
+  refresh();
+  ctxBtn.addEventListener('click', function(){
+    ctxBtn.disabled = true;
+    var p = registered ? window.metascanNative.ctxUnregister() : window.metascanNative.ctxRegister();
+    p.then(function(exe){
+      if (!registered && typeof exe === 'string') {
+        ctxBtn.title = '登録先: ' + exe + ' — exeを移動した場合は再登録してください';
+      }
+    }).catch(function(e){
+      alert('レジストリ操作に失敗しました: ' + e);
+    }).then(function(){
+      ctxBtn.disabled = false;
+      refresh();
+    });
+  });
+})();
+
+// ===== Electron「ファイルを開く」連携 =====
+if (window.metascanNative && window.metascanNative.onOpenFiles) {
+  window.metascanNative.onOpenFiles(function(files) {
+    var pseudo = files.map(function(f){
+      return { name:f.name, size:f.size, type:'', lastModified:f.lastModified,
+               bytes:new Uint8Array(f.data), truncated:f.truncated, zone:parseZone(f.zoneText) };
+    });
+    handleFiles(pseudo);
+  });
+}
+
+})();
+</script>
+</body>
+</html>
