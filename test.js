@@ -611,6 +611,23 @@ async function run() {
         const r2 = await Engine.analyzeBuffer(b2, { name: 'b.7z', size: b2.length });
         check('7z: 無圧縮の内包.envからAWSキー検出', r2.findings.some(f => f.category === '内包ファイル' && f.key.indexOf('AWS') !== -1), dump(r2));
         fs.unlinkSync(arc);
+        // LZMA2(既定圧縮) → 中身を展開してファイル単位で検出 (ssh.7z相当のケース)
+        fs.writeFileSync(require('path').join(tmp, 'id_ed25519'), '-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaA==\n-----END OPENSSH PRIVATE KEY-----\n');
+        cp.execFileSync(sevenZip, ['a', '-m0=lzma2', arc, tmp + '\\*'], { stdio: 'ignore' });
+        const b3 = new Uint8Array(fs.readFileSync(arc));
+        const r3 = await Engine.analyzeBuffer(b3, { name: 'c.7z', size: b3.length });
+        check('7z: LZMA2の中身から秘密鍵を検出', r3.findings.some(f => f.category === '内包ファイル' && f.key.indexOf('秘密鍵') !== -1), dump(r3));
+        check('7z: 名前ベースでもid_ed25519を警告', r3.findings.some(f => f.key.indexOf('SSH秘密鍵ファイル') !== -1 && f.risk === Engine.RISK.CRITICAL), dump(r3));
+        check('7z: LZMA2の中身からAWSキーを検出(ファイル名付き)', r3.findings.some(f => f.category === '内包ファイル' && f.key.indexOf('secret.env') !== -1 && f.key.indexOf('AWS') !== -1), dump(r3));
+        fs.unlinkSync(arc);
+        // LZMA2マルチチャンク (2MB超のデータ末尾にシークレット → チャンクまたぎの展開を検証)
+        const big = 'A'.repeat(3 * 1024 * 1024) + '\naws_key=AKIAIOSFODNN7EXAMPLE\n';
+        fs.writeFileSync(require('path').join(tmp, 'big.log'), big);
+        cp.execFileSync(sevenZip, ['a', '-m0=lzma2', arc, require('path').join(tmp, 'big.log')], { stdio: 'ignore' });
+        const b4 = new Uint8Array(fs.readFileSync(arc));
+        const r4 = await Engine.analyzeBuffer(b4, { name: 'd.7z', size: b4.length });
+        check('7z: マルチチャンクLZMA2末尾のAWSキーを検出', r4.findings.some(f => f.category === '内包ファイル' && f.key.indexOf('AWS') !== -1), dump(r4));
+        fs.unlinkSync(arc);
       } finally {
         try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) {}
         try { if (fs.existsSync(arc)) fs.unlinkSync(arc); } catch (e) {}

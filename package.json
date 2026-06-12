@@ -1,6 +1,6 @@
 {
   "name": "metascan",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "description": "ファイルのメタデータ・個人情報・偽装を検出するスキャナー (アップロード前チェック用)",
   "main": "main.js",
   "author": "kazumasa",

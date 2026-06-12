@@ -1129,9 +1129,13 @@ function parse7zStreamsInfo(b, st){
       for(var ff=0;ff<info.folders.length;ff++) numUnpack[ff]=read7zNumber(b, st);
       st2=b[st.p++];
     }
+    info.numUnpack=numUnpack;
+    info.subSizes=[];
     if(st2===0x09){ /* kSize: 各folderの最終streamを除くサイズ */
       for(var fs=0;fs<info.folders.length;fs++){
-        for(var k=0;k<numUnpack[fs]-1;k++) read7zNumber(b, st);
+        var partial=[];
+        for(var k=0;k<numUnpack[fs]-1;k++) partial.push(read7zNumber(b, st));
+        info.subSizes.push(partial);
       }
       st2=b[st.p++];
     }
@@ -1177,17 +1181,21 @@ function parse7zFolder(b, st){
   return { coders:coders, totalIn:totalIn, totalOut:totalOut, bindPairs:bindPairs, numPacked:numPacked };
 }
 
-/* 単一folder・単一coder(LZMA or Copy)を展開 */
+/* 単一folder・単一coder(Copy / LZMA / LZMA2)を展開 */
 function decode7zFolder(b, folder, dataStart, packSize, outSize){
   if(folder.coders.length!==1) return null;
   var coder=folder.coders[0];
   var input=b.slice(dataStart, dataStart+packSize);
   if(coder.idHex==='00'){ return input.slice(0, outSize); } /* Copy */
-  if(coder.idHex==='030101'){ /* LZMA */
+  if(coder.idHex==='030101'){ /* LZMA1 */
     if(!LZMA || !coder.props) return null;
     return LZMA.decodeLZMA(coder.props, input, outSize);
   }
-  return null; /* LZMA2(0x21)やBCJ等は非対応 */
+  if(coder.idHex==='21'){ /* LZMA2 (7zの既定。lc/lp/pbはチャンク内に持つ) */
+    if(!LZMA || !LZMA.decodeLZMA2) return null;
+    return LZMA.decodeLZMA2(input, outSize);
+  }
+  return null; /* BCJ等のフィルターチェーンは非対応 */
 }
 
 /* 展開済みヘッダー(kHeaderから)を読んでファイル名等を得る */
@@ -1229,6 +1237,8 @@ function parse7zHeader(b, st, archiveBytes, baseOffset){
             else cur+=String.fromCharCode(ch);
           }
         }
+      } else if(propType===0x0E){ /* kEmptyStream: ディレクトリ/空ファイルのビットベクトル */
+        result.emptyStreams=read7zBitVector(b, st, numFiles);
       }
       st.p=end;
     }
@@ -1237,7 +1247,8 @@ function parse7zHeader(b, st, archiveBytes, baseOffset){
   return result;
 }
 
-function parse7z(bytes){
+function parse7z(bytes, depth){
+  depth=depth||0;
   var meta={}, findings=[];
   if(bytes.length<32) return Promise.resolve({meta:meta, findings:findings});
   meta['[7z] 形式']='7-Zipアーカイブ';
@@ -1280,39 +1291,67 @@ function parse7z(bytes){
       findings.push(F('7z パストラバーサルの疑い', '「../」や絶対パスを含むエントリ名',
         '展開時に意図しない場所へ書き込む攻撃の可能性があります。', RISK.HIGH, '7zセキュリティ'));
     }
-    /* AESや非対応coder混在時は展開不能をメモ */
-    return tryExtract7z(hdr, fullArchive).then(function(){ return {meta:meta, findings:findings}; });
+    /* 中身を展開できない場合(暗号化等)でも、ファイル名から秘密鍵・認証情報を警告する */
+    realNames.forEach(function(n){
+      var base=n.split(/[\\/]/).pop();
+      var ext2=(base.lastIndexOf('.')>0)?base.slice(base.lastIndexOf('.')+1).toLowerCase():'';
+      detectKeyFiles(new Uint8Array(0), ext2, base).forEach(function(f){
+        findings.push(F('7z内: '+f.key, n, f.why, f.risk, '暗号鍵'));
+      });
+    });
+    return tryExtract7z(hdr).then(function(){ return {meta:meta, findings:findings}; });
   }
 
-  /* 内包ファイルの展開→再帰スキャン。各folderを順に展開(Copy/LZMA単一coderのみ)。
-     LZMA2圧縮(7zの既定)は非対応のため、その場合は一覧のみとなる。 */
+  /* 内包ファイルの展開→ファイル単位で再帰スキャン。
+     folderを展開(Copy/LZMA/LZMA2単一coder)し、SubStreamsInfoの境界でファイルに分割する。 */
   function tryExtract7z(hdr){
-    if(!hdr.mainStreams || hdr.encrypted) return Promise.resolve();
+    if(!hdr.mainStreams || hdr.encrypted || depth>=2) return Promise.resolve();
     var ms=hdr.mainStreams;
+    /* 非空ストリームのファイル名 (folder順に並ぶ) */
+    var streamNames=[];
+    for(var i=0;i<(hdr.names||[]).length;i++){
+      var isEmpty = hdr.emptyStreams && hdr.emptyStreams.length>i && hdr.emptyStreams[i];
+      if(!isEmpty) streamNames.push(hdr.names[i]);
+    }
     var packOffset=32+ms.packPos;
-    var packIdx=0;
-    var totalScanned=0;
-    ms.folders.forEach(function(folder){
+    var packIdx=0, streamCursor=0, totalScanned=0;
+    var tasks=[];
+    ms.folders.forEach(function(folder, fIdx){
       var np=folder.numPacked||1;
       var folderPackSize=0;
       for(var i=0;i<np;i++) folderPackSize+=(ms.packSizes[packIdx+i]||0);
       var outSize=folder.unpackSizes ? folder.unpackSizes[folder.unpackSizes.length-1] : 0;
-      if(outSize>0 && outSize<40*1024*1024 && totalScanned<80*1024*1024 && packOffset+folderPackSize<=bytes.length){
-        var decoded=decode7zFolder(bytes, folder, packOffset, folderPackSize, outSize);
-        if(decoded){
-          totalScanned+=decoded.length;
-          /* folder内は全ファイルが連結されている。境界は未取得だが連結バッファ全体を
-             秘密情報スキャンにかければAWSキー・秘密鍵等は検出できる。 */
-          var cf=scanPatterns(decoded, false).concat(detectKeyFiles(decoded, '', ''));
-          cf.forEach(function(f){
-            if(f.risk>=RISK.MEDIUM) findings.push(F('(7z内) '+f.key, f.val, f.why, f.risk, '内包ファイル'));
-          });
-        }
-      }
+      var numSub=(ms.numUnpack && ms.numUnpack[fIdx]!=null) ? ms.numUnpack[fIdx] : 1;
+      var myNames=streamNames.slice(streamCursor, streamCursor+numSub);
+      streamCursor+=numSub;
+      var thisOffset=packOffset, thisPackSize=folderPackSize;
       packOffset+=folderPackSize;
       packIdx+=np;
+      if(!(outSize>0 && outSize<40*1024*1024 && totalScanned<80*1024*1024 && thisOffset+thisPackSize<=bytes.length)) return;
+      var decoded=decode7zFolder(bytes, folder, thisOffset, thisPackSize, outSize);
+      if(!decoded) return;
+      totalScanned+=decoded.length;
+      /* substream境界で分割 (最後のサイズは folder合計 - 部分和) */
+      var sizes=((ms.subSizes && ms.subSizes[fIdx]) || []).slice(0, Math.max(0,numSub-1));
+      var sum=sizes.reduce(function(a,c){return a+c;},0);
+      sizes.push(outSize-sum);
+      var off=0;
+      sizes.forEach(function(sz, si){
+        if(sz<=0 || off+sz>decoded.length){ off+=Math.max(0,sz); return; }
+        var child=decoded.slice(off, off+sz);
+        off+=sz;
+        var childName=(myNames[si]||('stream'+si)).split(/[\\/]/).pop();
+        tasks.push(analyzeBuffer(child, {name:childName, size:child.length}, depth+1).then(function(r){
+          r.findings.forEach(function(f){
+            /* 名前ベースの警告は一覧側で出すので、ここでは内容ベースのみ */
+            if(f.risk>=RISK.MEDIUM && !/ファイルの可能性$/.test(f.key)){
+              findings.push(F((myNames[si]||childName)+' › '+f.key, f.val, f.why, f.risk, '内包ファイル'));
+            }
+          });
+        }).catch(function(){}));
+      });
     });
-    return Promise.resolve();
+    return Promise.all(tasks);
   }
 
   if(firstId===0x01){
@@ -1389,6 +1428,14 @@ function parseRAR(bytes){
     findings.push(F('RAR パストラバーサルの疑い', '「../」や絶対パスを含むエントリ名',
       '展開時に意図しない場所へ書き込む攻撃の可能性があります。', RISK.HIGH, 'RARセキュリティ'));
   }
+  /* 中身を展開できなくても、ファイル名から秘密鍵・認証情報を警告する */
+  realNames.forEach(function(n){
+    var base=n.split(/[\\/]/).pop();
+    var ext2=(base.lastIndexOf('.')>0)?base.slice(base.lastIndexOf('.')+1).toLowerCase():'';
+    detectKeyFiles(new Uint8Array(0), ext2, base).forEach(function(f){
+      findings.push(F('RAR内: '+f.key, n, f.why, f.risk, '暗号鍵'));
+    });
+  });
   storeChildren.slice(0,20).forEach(function(child){
     var cf=scanPatterns(child.data, false);
     cf.forEach(function(f){
@@ -1834,6 +1881,10 @@ function scanPatterns(bytes, isTextFile){
   var findings=[];
   var maxScan=Math.min(bytes.length, 1024*1024);
   var text=decode(bytes.slice(0,maxScan));
+  /* 大きいファイルは末尾も見る(ログ末尾の認証情報等) */
+  if(bytes.length>maxScan){
+    text+='\n'+decode(bytes.slice(Math.max(maxScan, bytes.length-256*1024)));
+  }
   /* バイナリファイルはUTF-16LE文字列も拾う(Windows系バイナリに多い) */
   if(!isTextFile){
     text+='\n'+decode(bytes.slice(0,Math.min(bytes.length,512*1024)),'utf-16le').replace(/[\x00-\x08\x0E-\x1F]/g,'\n');
@@ -2011,7 +2062,7 @@ function analyzeBuffer(bytes, info, depth){
   else if(kind==='mp4') tasks.push(safe(function(){return parseMP4(bytes);}));
   else if(kind==='pdf') tasks.push(safe(function(){return parsePDF(bytes);}));
   else if(kind==='zip') tasks.push(safe(function(){return parseZIPFamily(bytes,ext,depth);}));
-  else if(kind==='7z') tasks.push(safe(function(){return parse7z(bytes);}));
+  else if(kind==='7z') tasks.push(safe(function(){return parse7z(bytes,depth);}));
   else if(kind==='rar') tasks.push(safe(function(){return parseRAR(bytes);}));
   else if(kind==='mp3') tasks.push(safe(function(){return parseMP3(bytes);}));
   else if(kind==='flac') tasks.push(safe(function(){return parseFLAC(bytes);}));
